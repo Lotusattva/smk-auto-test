@@ -30,7 +30,7 @@ struct Payload {
 async fn send_request(
     client: &Client,
     address: &str,
-    url: &str,
+    url: String,
     payload: &Payload,
 ) -> Result<reqwest::Response> {
     let full_url = format!("{}{}", address, url);
@@ -77,15 +77,17 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let img_folder = cli.folder.unwrap_or(PathBuf::from("./images"));
+    let output_path = cli.output.unwrap_or(PathBuf::from("output.txt"));
 
     let (tx, mut rx) = mpsc::channel::<String>(32);
-    let output_path = cli.output.unwrap_or(PathBuf::from("output.txt"));
-    let output_path_clone = output_path.clone();
+
+    let output_path_ = output_path.clone();
+
     let writer_handle = tokio::spawn(async move {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(output_path)
+            .open(output_path_)
             .context("Failed to open output file")?;
 
         let mut writer = BufWriter::new(file);
@@ -105,14 +107,14 @@ async fn main() -> Result<()> {
 
     let client = Client::new();
 
-    let mut handles = Vec::new();
-
     let pb = ProgressBar::new(rows.len() as u64);
     pb.set_message("Processing Requests");
     pb.set_style(ProgressStyle::with_template(
         "[{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} ({percent}%) - ETA: {eta_precise}",
     )?
     .progress_chars("##-"));
+
+    let mut handles = Vec::new();
 
     for (index, row) in rows.into_iter().enumerate() {
         let img_folder = img_folder.clone();
@@ -133,7 +135,7 @@ async fn main() -> Result<()> {
                 params: row.args,
             };
 
-            let response = send_request(&client, &address, &row.url, &payload).await;
+            let response = send_request(&client, &address, row.url, &payload).await;
 
             if let Some(mismatch) = process_response(response, row.response, index).await? {
                 tx.send(mismatch)
@@ -159,7 +161,7 @@ async fn main() -> Result<()> {
 
     println!(
         "Mismatched responses have been written to {}.",
-        output_path_clone.display()
+        output_path.display()
     );
 
     Ok(())
